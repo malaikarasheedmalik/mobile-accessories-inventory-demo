@@ -1,0 +1,914 @@
+{
+  "name": "Mobile Accessories Inventory System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mobile-inventory",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Chat Input",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        3008,
+        4544
+      ],
+      "id": "cb946f45-1651-4b90-875d-57fd45dbb641",
+      "webhookId": "997622c6-979f-4659-bf77-dd7cb215a3d1"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        3200,
+        4800
+      ],
+      "id": "2bb08d3d-9e83-453d-b256-a76b03c71e61",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "o4jvGxCIJ5Cv59Ms",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a professional mobile accessories inventory manager AI. Help store staff manage products, stock, sales, transactions, low-stock alerts and reports. Always answer using real inventory data from the connected database. Never invent stock quantities, prices, products, SKUs, suppliers or transactions. Before changing inventory: find the product, verify the SKU/name, check current stock, apply the change, prevent negative stock, and record the transaction. Use PKR currency unless the user chooses another. Keep responses concise and professional. Return ONLY a JSON object with two keys: 'operation' (one of: search, add, stock_in, stock_out, report, low_stock) and 'parameters' (an object with keys such as sku, product_name, product, name, category, brand, quantity, selling_price, cost_price, current_stock, reorder_level, supplier, notes, customer). Do not add any text outside the JSON.\n\nHere is the raw request payload received from the webhook. Identify the user's request from it and produce the JSON intent exactly as specified above:\n{{ JSON.stringify($json.body || $json) }}",
+        "options": {}
+      },
+      "name": "Inventory AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.5,
+      "position": [
+        3200,
+        4544
+      ],
+      "id": "0fe10a7b-3636-4a60-a596-247779560fe7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\n\nlet text = '';\nlet op = raw.operation;\nlet p = raw.parameters || raw;\n\nif (!op) {\n  text = raw.output || raw.text || raw.message || '';\n\n  if (!text && raw.response) text = raw.response;\n  if (!text && raw.result) text = raw.result;\n\n  text = String(text)\n    .replace(/```json/gi, '')\n    .replace(/```/g, '')\n    .trim();\n\n  let parsed = null;\n\n  try {\n    parsed = JSON.parse(text);\n  } catch (e) {\n    const m = text.match(/\\{[\\s\\S]*\\}/);\n    if (m) {\n      try {\n        parsed = JSON.parse(m[0]);\n      } catch (e2) {\n        parsed = null;\n      }\n    }\n  }\n\n  if (parsed && typeof parsed === 'object') {\n    op = parsed.operation || parsed.action || '';\n    p = parsed.parameters || parsed.data || parsed;\n  } else {\n    op = '';\n    p = {};\n  }\n}\n\nop = String(op || '')\n  .toLowerCase()\n  .replace(/[_-]/g, ' ')\n  .trim();\n\nconst originalOp = op;\n\nconst map = {\n  add: 'add',\n  create: 'add',\n  update: 'add',\n  edit: 'add',\n  insert: 'add',\n  upsert: 'add',\n  'new product': 'add',\n  product: 'add',\n\n  'stock in': 'stock_in',\n  receive: 'stock_in',\n  received: 'stock_in',\n  restock: 'stock_in',\n  purchase: 'stock_in',\n  bought: 'stock_in',\n  incoming: 'stock_in',\n\n  'stock out': 'stock_out',\n  sell: 'stock_out',\n  sale: 'stock_out',\n  sales: 'stock_out',\n  sold: 'stock_out',\n  remove: 'stock_out',\n  outgoing: 'stock_out',\n\n  report: 'report',\n  summary: 'report',\n  overview: 'report',\n  stats: 'report',\n  statistics: 'report',\n  dashboard: 'report',\n  'inventory report': 'report',\n\n  'low stock': 'low_stock',\n  'out of stock': 'low_stock',\n  'out-of-stock': 'low_stock',\n  reorder: 'low_stock',\n  alerts: 'low_stock',\n  'stock alerts': 'low_stock',\n\n  search: 'search',\n  find: 'search',\n  show: 'search',\n  list: 'search',\n  lookup: 'search',\n  get: 'search',\n  view: 'search',\n  display: 'search',\n  check: 'search'\n};\n\nif (map[op]) {\n  op = map[op];\n} else if (!['add', 'stock_in', 'stock_out', 'report', 'low_stock', 'search'].includes(op)) {\n  const searchText = `${text} ${JSON.stringify(p)}`.toLowerCase();\n\n  if (/transaction history|recent transactions|recent sales|sales history|stock history|stock movement|stock movements|movement history|stock transactions|show transactions|list transactions|transaction report|transaction log|recent activity|show sales|sales report/.test(searchText)) {\n    op = 'report';\n  } else if (/low stock|reorder|out[- ]of[- ]stock|stock alert/.test(searchText)) {\n    op = 'low_stock';\n  } else if (/stock in|receive|received|restock|purchase|bought|incoming/.test(searchText)) {\n    op = 'stock_in';\n  } else if (/sell|sale|sales|sold|stock out|remove|outgoing/.test(searchText)) {\n    op = 'stock_out';\n  } else if (/report|summary|overview|stats|statistics|dashboard|inventory value|today/.test(searchText)) {\n    op = 'report';\n  } else if (/add|create|new product|insert|update product/.test(searchText)) {\n    op = 'add';\n  } else {\n    op = 'search';\n  }\n}\n\nconst num = (value, fallback = -1) => {\n  if (value === undefined || value === null || value === '') return fallback;\n\n  const n = Number(\n    String(value)\n      .replace(/,/g, '')\n      .replace(/pkr|rs\\.?/gi, '')\n      .trim()\n  );\n\n  return Number.isFinite(n) ? n : fallback;\n};\n\nconst integer = (value, fallback = 0) => {\n  const n = parseInt(String(value ?? '').replace(/,/g, ''), 10);\n  return Number.isFinite(n) ? n : fallback;\n};\n\nconst str = (value, fallback = '') => {\n  if (value === undefined || value === null) return fallback;\n  return String(value).trim();\n};\n\nlet userMsg = '';\n\ntry {\n  userMsg =\n    $node['Chat Input'].json.body?.chatInput ||\n    $node['Chat Input'].json.body?.message ||\n    $node['Chat Input'].json.chatInput ||\n    $node['Chat Input'].json.message ||\n    '';\n} catch (e) {\n  userMsg = '';\n}\n\nconst combinedText = `${originalOp} ${text} ${userMsg}`.toLowerCase();\n\n// Detect special report subtype\nlet reportType = '';\n\nconst reportTypeRegex = {\n  transactions:\n    /transaction history|recent transactions|recent sales|sales history|stock history|stock movement|stock movements|movement history|stock transactions|show transactions|list transactions|transaction report|transaction log|recent activity|show sales|sales report/i,\n  low_stock: /low stock|reorder|stock alert/i,\n  inventory: /inventory report|inventory summary|inventory overview/i\n};\n\nif (reportTypeRegex.transactions.test(combinedText)) {\n  reportType = 'transactions';\n} else if (reportTypeRegex.low_stock.test(combinedText)) {\n  reportType = 'low_stock';\n} else if (reportTypeRegex.inventory.test(combinedText)) {\n  reportType = 'inventory';\n}\n\n// Route query-only intents by report subtype.\n// A history/query request must NEVER be misinterpreted as a stock mutation.\nconst mutationOps = new Set(['add', 'stock_in', 'stock_out']);\nif (reportType === 'transactions' && !mutationOps.has(originalOp)) {\n  op = 'report';\n}\nif (reportType === 'low_stock' && !mutationOps.has(originalOp)) {\n  op = 'low_stock';\n}\nif (reportType === 'inventory' && !mutationOps.has(originalOp)) {\n  op = 'report';\n}\n\nconst transactionType =\n  op === 'stock_out'\n    ? (/sell|sale|sales|sold/i.test(combinedText) ? 'SALE' : 'STOCK_OUT')\n    : op === 'stock_in'\n      ? 'STOCK_IN'\n      : '';\n\nconst quantity = integer(p.quantity, 0);\n\nconst currentStockValue = num(p.current_stock, -1);\n\nconst currentStock =\n  currentStockValue >= 0\n    ? currentStockValue\n    : -1;\n\nconst reorderLevel = num(p.reorder_level, -1);\n\nconst result = {\n  operation: op,\n  report_type: reportType,\n  transaction_type: transactionType,\n\n  sku: str(p.sku || p.product_sku || p.code),\n  product_name: str(p.product_name || p.product || p.name || p.title),\n\n  category: str(p.category),\n  brand: str(p.brand),\n  compatibility: str(p.compatibility),\n  color: str(p.color || p.colour),\n\n  quantity,\n\n  cost_price: num(p.cost_price, -1),\n  selling_price: num(p.selling_price, -1),\n\n  current_stock: currentStock,\n  reorder_level: reorderLevel,\n\n  supplier: str(p.supplier || p.supplier_name),\n  location: str(p.location || p.storage_location),\n\n  supplier_customer: str(\n    p.supplier_customer ||\n    p.customer ||\n    p.customer_name ||\n    p.supplier\n  ),\n\n  notes: str(p.notes || p.note || p.description)\n};\n\nresult.validation = {\n  has_product_identifier: Boolean(result.sku || result.product_name),\n  has_quantity: result.quantity > 0,\n  has_selling_price: result.selling_price >= 0,\n  has_cost_price: result.cost_price >= 0,\n  has_reorder_level: result.reorder_level >= 0\n};\n\nreturn [{ json: result }];"
+      },
+      "name": "Extract Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3504,
+        4544
+      ],
+      "id": "008e711e-6163-4ef6-9b15-c86681f7ae57"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node['Extract Intent'].json.operation}}",
+              "rightValue": "search",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Route Search",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        4272
+      ],
+      "id": "aff58679-d8af-4203-b3d8-15ef33ce7b00"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node['Extract Intent'].json.operation}}",
+              "rightValue": "add",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Route Add",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        4400
+      ],
+      "id": "84dc9fd7-d852-42c5-adcd-28433d8f3985"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node['Extract Intent'].json.operation}}",
+              "rightValue": "stock_in",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Route Stock In",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        4512
+      ],
+      "id": "193f5173-6ac0-4d98-ba8d-fa3d360466c6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node['Extract Intent'].json.operation}}",
+              "rightValue": "stock_out",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Route Stock Out",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        4640
+      ],
+      "id": "31f10672-3fe3-4e36-ab21-49327a253022"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node['Extract Intent'].json.operation}}",
+              "rightValue": "report",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Route Report",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        4752
+      ],
+      "id": "48c46ba0-fdb2-46f0-b3e6-a98e5ec0b10c"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node['Extract Intent'].json.operation}}",
+              "rightValue": "low_stock",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Route Low Stock",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        4880
+      ],
+      "id": "1abd92af-fc2e-479a-acdc-a9f192b33edc"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sku, product_name, category, brand, compatibility, color, cost_price, selling_price, current_stock, reorder_level, supplier, location, status, updated_at FROM products WHERE (($1 = '' AND $2 = '' AND $3 = '' AND $4 = '' AND $5 = '')  OR ($1 <> '' AND sku ILIKE '%' || $1 || '%')  OR ($2 <> '' AND (        LOWER(product_name) = LOWER($2)         OR REPLACE(LOWER(product_name), '-', ' ') LIKE '%' || REPLACE(LOWER($2), '-', ' ') || '%'         OR EXISTS (           SELECT 1 FROM regexp_split_to_table(LOWER($2), '[^a-z0-9]+') AS w(word)           WHERE w.word <> '' AND LOWER(product_name) LIKE '%' || w.word || '%'         )      ))  OR ($3 <> '' AND category ILIKE '%' || $3 || '%')  OR ($4 <> '' AND brand ILIKE '%' || $4 || '%')  OR ($5 <> '' AND compatibility ILIKE '%' || $5 || '%')) ORDER BY  CASE WHEN $2 = '' THEN 0 ELSE (    SELECT count(*) FROM regexp_split_to_table(LOWER($2), '[^a-z0-9]+') AS w2(word)    WHERE w2.word <> '' AND (LOWER(product_name) LIKE '%' || w2.word || '%' OR REPLACE(LOWER(product_name), '-', ' ') LIKE '%' || w2.word || '%')  ) END DESC, product_name LIMIT 50",
+        "options": {
+          "queryReplacement": "{{$node['Extract Intent'].json.sku || ''}},{{$node['Extract Intent'].json.product_name || ''}},{{$node['Extract Intent'].json.category || ''}},{{$node['Extract Intent'].json.brand || ''}},{{$node['Extract Intent'].json.compatibility || ''}}"
+        }
+      },
+      "name": "Search Product DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        4064,
+        4272
+      ],
+      "id": "e8ea725d-508a-4e4f-8120-379adb159a4f",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO products (sku, product_name, category, brand, compatibility, color, cost_price, selling_price, current_stock, reorder_level, supplier, location, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6,   CASE WHEN $7::numeric >= 0 THEN $7::numeric ELSE 0 END,   CASE WHEN $8::numeric >= 0 THEN $8::numeric ELSE 0 END,   CASE WHEN $9::int >= 0 THEN $9::int ELSE 0 END,   CASE WHEN $10::int >= 0 THEN $10::int ELSE 5 END,   $11, $12,   CASE WHEN CASE WHEN $9::int >= 0 THEN $9::int ELSE 0 END <= 0 THEN 'OUT_OF_STOCK'        WHEN CASE WHEN $9::int >= 0 THEN $9::int ELSE 0 END <= CASE WHEN $10::int >= 0 THEN $10::int ELSE 5 END THEN 'LOW_STOCK'        ELSE 'IN_STOCK' END,   NOW(), NOW()) ON CONFLICT (sku) DO UPDATE SET   product_name = EXCLUDED.product_name,   category = EXCLUDED.category,   brand = EXCLUDED.brand,   compatibility = EXCLUDED.compatibility,   color = CASE WHEN $6 <> '' THEN EXCLUDED.color ELSE products.color END,   cost_price = CASE WHEN $7::numeric >= 0 THEN EXCLUDED.cost_price ELSE products.cost_price END,   selling_price = CASE WHEN $8::numeric >= 0 THEN EXCLUDED.selling_price ELSE products.selling_price END,   current_stock = CASE WHEN $9::int >= 0 THEN $9::int ELSE products.current_stock END,   reorder_level = CASE WHEN $10::int >= 0 THEN $10::int ELSE products.reorder_level END,   supplier = CASE WHEN $11 <> '' THEN EXCLUDED.supplier ELSE products.supplier END,   location = CASE WHEN $12 <> '' THEN EXCLUDED.location ELSE products.location END,   status = CASE WHEN $9::int >= 0 THEN              CASE WHEN $9::int <= 0 THEN 'OUT_OF_STOCK'                   WHEN $9::int <= CASE WHEN $10::int >= 0 THEN $10::int ELSE products.reorder_level END THEN 'LOW_STOCK'                   ELSE 'IN_STOCK' END            ELSE products.status END,   updated_at = NOW() RETURNING sku, product_name, selling_price, current_stock, status",
+        "options": {
+          "queryReplacement": "{{$node['Extract Intent'].json.sku || ''}},{{$node['Extract Intent'].json.product_name || ''}},{{$node['Extract Intent'].json.category || ''}},{{$node['Extract Intent'].json.brand || ''}},{{$node['Extract Intent'].json.compatibility || ''}},{{$node['Extract Intent'].json.color || ''}},{{$node['Extract Intent'].json.cost_price || 0}},{{$node['Extract Intent'].json.selling_price || 0}},{{$node['Extract Intent'].json.current_stock || 0}},{{$node['Extract Intent'].json.reorder_level || 5}},{{$node['Extract Intent'].json.supplier || ''}},{{$node['Extract Intent'].json.location || ''}}"
+        }
+      },
+      "name": "Add Product DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        4064,
+        4400
+      ],
+      "id": "46fe1442-f713-4d6e-ab26-642374e0d73d",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sku, product_name, current_stock, selling_price, cost_price, reorder_level, status FROM products WHERE ($1 <> '' AND (sku ILIKE '%' || $1 || '%' OR LOWER(sku) = LOWER($1)))    OR ($2 <> '' AND (        LOWER(product_name) = LOWER($2)         OR REPLACE(LOWER(product_name), '-', ' ') LIKE '%' || REPLACE(LOWER($2), '-', ' ') || '%'         OR (           SELECT count(*) FROM regexp_split_to_table(LOWER($2), '[^a-z0-9]+') AS w(word)           WHERE w.word <> '' AND (LOWER(product_name) LIKE '%' || w.word || '%'             OR REPLACE(LOWER(product_name), '-', ' ') LIKE '%' || w.word || '%')         ) >= 1      )) ORDER BY   CASE WHEN $1 <> '' AND LOWER(sku) = LOWER($1) THEN 0 ELSE 99 END,   CASE WHEN $2 <> '' AND LOWER(product_name) = LOWER($2) THEN 0 ELSE 99 END,   CASE WHEN $2 = '' THEN 0 ELSE (     SELECT count(*) FROM regexp_split_to_table(LOWER($2), '[^a-z0-9]+') AS w(word)     WHERE w.word <> '' AND (LOWER(product_name) LIKE '%' || w.word || '%'       OR REPLACE(LOWER(product_name), '-', ' ') LIKE '%' || w.word || '%')   ) END DESC,   current_stock DESC LIMIT 1",
+        "options": {
+          "queryReplacement": "{{$node['Extract Intent'].json.sku || ''}},{{$node['Extract Intent'].json.product_name || ''}}"
+        }
+      },
+      "name": "Get Product Stock DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        4064,
+        4544
+      ],
+      "id": "1581d1cb-43f0-4acd-a30c-bab77bcbc59b",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst product = items.length ? items[0].json : null;\nconst ei = $node['Extract Intent'].json;\n\nif (!product || !product.sku) {\n  return [{\n    json: {\n      error: 'Product not found. Please verify the SKU or product name.'\n    }\n  }];\n}\n\nconst qty = Number(ei.quantity || 0);\n\nif (!Number.isInteger(qty) || qty <= 0) {\n  return [{\n    json: {\n      error: 'Quantity must be a positive whole number.'\n    }\n  }];\n}\n\nconst previousStock = Number(product.current_stock || 0);\nconst isStockOut = ei.operation === 'stock_out';\n\nif (isStockOut && qty > previousStock) {\n  return [{\n    json: {\n      error:\n        `Insufficient stock. ${product.product_name} (${product.sku}) has only ` +\n        `${previousStock} units available, but ${qty} were requested.`\n    }\n  }];\n}\n\nconst newStock = isStockOut\n  ? previousStock - qty\n  : previousStock + qty;\n\nconst transactionType = isStockOut\n  ? (ei.transaction_type === 'SALE' ? 'SALE' : 'STOCK_OUT')\n  : 'STOCK_IN';\n\nconst unitPrice = isStockOut\n  ? Number(product.selling_price || 0)\n  : Number(product.cost_price || product.selling_price || 0);\n\nconst totalAmount = unitPrice * qty;\n\nconst now = new Date();\nconst pad2 = (n) => String(n).padStart(2, '0');\nconst transactionId =\n  'TXN-' +\n  now.getFullYear() +\n  pad2(now.getMonth() + 1) +\n  pad2(now.getDate()) +\n  '-' +\n  Math.random().toString(36).slice(2, 8).toUpperCase();\n\nlet notes = ei.notes || '';\n\nif (!notes) {\n  notes = transactionType === 'SALE'\n    ? 'Customer sale'\n    : transactionType === 'STOCK_IN'\n      ? 'Stock received'\n      : 'Stock adjustment';\n}\n\nreturn [{\n  json: {\n    sku: product.sku,\n    product_name: product.product_name,\n\n    quantity: qty,\n\n    previous_stock: previousStock,\n    new_stock: newStock,\n\n    transaction_type: transactionType,\n\n    unit_price: unitPrice,\n    total_amount: totalAmount,\n\n    supplier_customer: ei.supplier_customer || '',\n    notes,\n\n    transaction_id: transactionId,\n\n    status_after_transaction:\n      newStock <= 0\n        ? 'OUT_OF_STOCK'\n        : newStock <= Number(product.reorder_level || 0)\n          ? 'LOW_STOCK'\n          : 'IN_STOCK'\n  }\n}];"
+      },
+      "name": "Stock Operation Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        4512
+      ],
+      "id": "13fbc756-b2cd-4894-9a42-ea44c66a8ba8",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.error || ''}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Stock Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        4512
+      ],
+      "id": "d8b9f08d-5f76-4c07-9e6e-09127698f66f"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE products SET current_stock=$1::int, status=CASE WHEN $1::int <= 0 THEN 'OUT_OF_STOCK' WHEN $1::int <= reorder_level THEN 'LOW_STOCK' ELSE 'IN_STOCK' END, updated_at=NOW() WHERE sku=$2 RETURNING sku, product_name, current_stock, status",
+        "options": {
+          "queryReplacement": "{{$json.new_stock}},{{$json.sku}}"
+        }
+      },
+      "name": "Update Stock DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        4832,
+        4512
+      ],
+      "id": "ad1b3922-a7ea-4960-8f7f-2392432a37e9",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO transactions (transaction_id, sku, product_name, transaction_type, quantity, previous_stock, new_stock, unit_price, total_amount, supplier_customer, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING transaction_id, sku, transaction_type, quantity",
+        "options": {
+          "queryReplacement": "{{$node['Stock Operation Processor'].json.transaction_id}},{{$node['Stock Operation Processor'].json.sku}},{{$node['Stock Operation Processor'].json.product_name}},{{$node['Stock Operation Processor'].json.transaction_type}},{{$node['Stock Operation Processor'].json.quantity}},{{$node['Stock Operation Processor'].json.previous_stock}},{{$node['Stock Operation Processor'].json.new_stock}},{{$node['Stock Operation Processor'].json.unit_price}},{{$node['Stock Operation Processor'].json.total_amount}},{{$node['Stock Operation Processor'].json.supplier_customer}},{{$node['Stock Operation Processor'].json.notes}}"
+        }
+      },
+      "name": "Create Transaction DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        5040,
+        4512
+      ],
+      "id": "685b6713-f14b-4a64-a410-996de90a72b3",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sku, product_name, category, cost_price, selling_price, current_stock, reorder_level, status FROM products ORDER BY product_name",
+        "options": {}
+      },
+      "name": "Get All Products DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        4064,
+        4752
+      ],
+      "id": "e43f0086-0f0b-4867-9eb9-6415e9a4d267",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet totalProducts = 0, totalUnits = 0, totalValue = 0, totalCost = 0, lowStock = 0, outOfStock = 0;\nfor (const it of items) {\n  const p = it.json;\n  totalProducts += 1;\n  const stock = Number(p.current_stock || 0);\n  totalUnits += stock;\n  totalValue += stock * (Number(p.selling_price || 0));\n  totalCost += stock * (Number(p.cost_price || 0));\n  if (stock <= Number(p.reorder_level || 0)) lowStock += 1;\n  if (stock === 0) outOfStock += 1;\n}\nconst potentialGrossMargin = totalValue - totalCost;\nreturn [{ json: { inventory_summary: {\n  report_type: 'inventory',\n  products: totalProducts,\n  units: totalUnits,\n  inventory_value: totalValue,\n  inventory_cost: totalCost,\n  potential_gross_margin: potentialGrossMargin,\n  low_stock: lowStock,\n  out_of_stock: outOfStock\n} } }];"
+      },
+      "name": "Inventory Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        4752
+      ],
+      "id": "89a5122f-a36e-45e7-94cc-70d033e908c1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sku, product_name, selling_price, current_stock, reorder_level, status FROM products WHERE current_stock <= reorder_level ORDER BY current_stock ASC",
+        "options": {}
+      },
+      "name": "Get Low Stock DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        4064,
+        4880
+      ],
+      "id": "1435dc61-6b1b-4e73-b0cd-a02df765f943",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst ei = $node['Extract Intent'].json;\n\nconst esc = (v) => String(v ?? '');\n\nconst out = {\n  success: true,\n  operation: ei.operation,\n  timestamp: new Date().toISOString()\n};\n\nconst alerts = [];\n\nconst responseLine = (p) =>\n  esc(p.sku) + ' | ' + esc(p.product_name) + ' | Stock: ' + esc(p.current_stock) +\n  ' | Price: ' + esc(p.selling_price) + ' PKR | Status: ' + esc(p.status);\n\nconst money = (v) => {\n  const n = Number(v);\n  return Number.isFinite(n) ? n.toLocaleString('en-PK') : '0';\n};\n\nlet text = '';\nlet type = 'info';\n\n// 1. Stock transaction result\ntry {\n  const op = $node['Stock Operation Processor'].json;\n  if (op && op.sku && !items.some(i => i.json.error)) {\n    type = 'transaction';\n    out.type = 'transaction';\n    out.transaction = {\n      id: op.transaction_id,\n      type: op.transaction_type,\n      product: op.product_name,\n      sku: op.sku,\n      quantity: op.quantity,\n      previous_stock: op.previous_stock,\n      new_stock: op.new_stock,\n      unit_price: op.unit_price,\n      total_amount: op.total_amount,\n      status: op.status_after_transaction,\n      party: op.supplier_customer || '',\n      notes: op.notes || ''\n    };\n    out.message = op.transaction_type === 'SALE'\n      ? 'Sale completed successfully.'\n      : op.transaction_type === 'STOCK_IN'\n        ? 'Stock received successfully.'\n        : 'Stock updated successfully.';\n    out.data = out.transaction;\n    const sign = (op.transaction_type === 'SALE' || op.transaction_type === 'STOCK_OUT') ? '-' : '+';\n    text = 'SUCCESS\\nOperation: ' + op.transaction_type + '\\nProduct: ' + op.product_name + ' (' + op.sku + ')\\nQuantity: ' + sign + op.quantity;\n    if (op.previous_stock !== null && op.previous_stock !== undefined) text += '\\nPrevious stock: ' + op.previous_stock;\n    if (op.new_stock !== null && op.new_stock !== undefined) text += '\\nNew stock: ' + op.new_stock;\n    if (op.total_amount) text += '\\nTotal: ' + money(op.total_amount) + ' PKR';\n    if (op.status_after_transaction === 'LOW_STOCK') {\n      alerts.push('Low stock alert: ' + op.product_name + ' has ' + op.new_stock + ' units remaining.');\n    }\n    if (op.status_after_transaction === 'OUT_OF_STOCK') {\n      alerts.push('Out of stock: ' + op.product_name + ' needs immediate restocking.');\n    }\n  }\n} catch (e) {}\n\n// 2. Add / update product\nif (!text) {\n  try {\n    const product = $node['Add Product DB'].json;\n    if (product && product.sku) {\n      type = 'product';\n      out.type = 'product';\n      out.product = {\n        sku: product.sku,\n        product_name: product.product_name,\n        selling_price: product.selling_price,\n        current_stock: product.current_stock,\n        status: product.status\n      };\n      out.message = 'Product ' + product.product_name + ' (' + product.sku + ') was added or updated successfully.';\n      out.data = out.product;\n      text = 'SUCCESS\\nOperation: ADD / UPDATE PRODUCT\\nProduct: ' + product.product_name + ' (' + product.sku + ')';\n      if (product.current_stock !== null && product.current_stock !== undefined) text += '\\nCurrent stock: ' + product.current_stock;\n      text += '\\nSelling price: ' + product.selling_price + ' PKR\\nStatus: ' + product.status;\n    }\n  } catch (e) {}\n}\n\n// 3. Transaction history\nif (!text) {\n  const txnItem = items.find(i => i.json.transaction_history);\n  if (txnItem) {\n    const rows = txnItem.json.transaction_history || [];\n    type = 'transactions';\n    out.type = 'transactions';\n    out.report_type = 'transactions';\n    out.message = rows.length ? rows.length + ' recent transaction(s) found.' : 'No transactions recorded yet.';\n    out.data = rows;\n    if (!rows.length) {\n      text = 'No transactions recorded yet.';\n    } else {\n      text = 'RECENT TRANSACTIONS';\n      for (const t of rows) {\n        text += '\\n\\n' + t.transaction_id + '\\n';\n        text += t.transaction_type + '\\n';\n        text += (t.product_name ? t.product_name : '') + (t.sku ? ' (' + t.sku + ')' : '') + '\\n';\n        text += 'Quantity: ' + t.quantity + '\\n';\n        if (t.previous_stock !== null && t.previous_stock !== undefined) text += 'Previous stock: ' + t.previous_stock + '\\n';\n        if (t.new_stock !== null && t.new_stock !== undefined) text += 'New stock: ' + t.new_stock + '\\n';\n        if (t.unit_price) text += 'Unit price: ' + money(t.unit_price) + ' PKR\\n';\n        if (t.total_amount) text += 'Total: ' + money(t.total_amount) + ' PKR\\n';\n        if (t.supplier_customer) text += 'Party: ' + t.supplier_customer + '\\n';\n        const dt = new Date(t.timestamp);\n        if (!isNaN(dt.getTime())) {\n          text += 'Date: ' + dt.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });\n        }\n      }\n      text = text.trim();\n    }\n  }\n}\n\n// 4. Low stock report\nif (!text) {\n  const lsItem = items.find(i => i.json.low_stock_report);\n  if (lsItem) {\n    const rows = lsItem.json.low_stock_report || [];\n    type = 'low_stock';\n    out.type = 'low_stock';\n    out.report_type = 'low_stock';\n    out.message = rows.length ? rows.length + ' low stock product(s).' : 'All products are sufficiently stocked.';\n    out.data = rows;\n    for (const r of rows) {\n      if (String(r.status || '').toUpperCase() === 'OUT_OF_STOCK' || Number(r.current_stock) === 0) {\n        alerts.push(r.product_name + ' (' + r.sku + ') is out of stock.');\n      } else {\n        alerts.push(r.product_name + ' (' + r.sku + ') is low on stock.');\n      }\n    }\n    if (!rows.length) {\n      text = 'No low-stock products. All stock levels are healthy.';\n    } else {\n      text = 'LOW STOCK REPORT';\n      for (const r of rows) {\n        text += '\\n\\n' + responseLine(r);\n        text += '\\nReorder level: ' + r.reorder_level + ' | Suggested reorder: ' + r.suggested_reorder_qty;\n      }\n      text = text.trim();\n    }\n  }\n}\n\n// 5. Inventory report\nif (!text) {\n  const summaryItem = items.find(i => i.json.inventory_summary);\n  if (summaryItem) {\n    const s = summaryItem.json.inventory_summary;\n    type = 'report';\n    out.type = 'report';\n    out.report_type = 'inventory';\n    out.summary = {\n      total_products: s.products,\n      total_units: s.units,\n      inventory_value: s.inventory_value,\n      inventory_cost: s.inventory_cost,\n      potential_gross_margin: s.potential_gross_margin,\n      low_stock_items: s.low_stock,\n      out_of_stock_items: s.out_of_stock\n    };\n    out.message = 'Inventory report generated successfully.';\n    out.data = out.summary;\n    text = 'INVENTORY SUMMARY\\nProducts: ' + s.products + '\\nTotal units: ' + s.units;\n    text += '\\nInventory cost: ' + s.inventory_cost + ' PKR\\nInventory value: ' + s.inventory_value + ' PKR';\n    if (s.potential_gross_margin !== undefined) text += '\\nPotential gross margin: ' + s.potential_gross_margin + ' PKR';\n    text += '\\nLow stock: ' + s.low_stock + '\\nOut of stock: ' + s.out_of_stock;\n  }\n}\n\n// 6. Products / search\nif (!text) {\n  const products = items\n    .map(i => i.json)\n    .filter(p => p.sku && !p.error && !p.transaction_history && !p.low_stock_report && !p.inventory_summary);\n  if (products.length) {\n    type = 'products';\n    out.type = 'products';\n    out.products = products.map(p => ({\n      sku: p.sku,\n      product_name: p.product_name,\n      category: p.category || '',\n      brand: p.brand || '',\n      compatibility: p.compatibility || '',\n      color: p.color || '',\n      selling_price: p.selling_price,\n      current_stock: p.current_stock,\n      reorder_level: p.reorder_level,\n      status: p.status\n    }));\n    out.count = products.length;\n    out.message = products.length === 1 ? 'Product found.' : products.length + ' products found.';\n    out.data = out.products;\n    text = (products.length === 1 ? 'PRODUCT\\n' : 'PRODUCTS (' + products.length + ')\\n');\n    for (const p of products) {\n      text += responseLine(p) + '\\n';\n    }\n    text = text.trim();\n  }\n}\n\n// 7. Error\nif (!text) {\n  const err = items.find(i => i.json.error);\n  if (err) {\n    out.success = false;\n    out.operation = ei.operation;\n    out.error = err.json.error;\n    text = 'ERROR:\\n' + err.json.error + '\\nRequired info:\\n- Verify the product SKU or name.\\n- Provide a valid quantity and required fields.';\n  }\n}\n\n// 8. Empty\nif (!text) {\n  out.success = false;\n  out.message = 'No results found.';\n  out.hint = 'Try \"Search iPhone cover\", \"Show all products\", \"Show recent transactions\" or \"Show low stock products\".';\n  text = 'No results found. Try \"Search iPhone cover\" or \"Show all products\".';\n}\n\nout.response = text.trim();\nout.alerts = alerts;\nout.text = out.response;\n\nreturn [{ json: out }];"
+      },
+      "name": "Response Formatter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5360,
+        4544
+      ],
+      "id": "55e52966-3b13-4903-bcb2-796efe36b3a2",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Chat Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        5616,
+        4544
+      ],
+      "id": "ad3a8954-72fc-4742-b067-763a40e346bc"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$node['Extract Intent'].json.report_type}}",
+              "rightValue": "transactions",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Report Type Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4064,
+        4868
+      ],
+      "id": "75b325dc-6081-4102-9b8e-a2dca67ce41e"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT transaction_id, sku, product_name, transaction_type, quantity, previous_stock, new_stock, unit_price, total_amount, supplier_customer, notes, timestamp FROM transactions ORDER BY timestamp DESC, id DESC LIMIT 20",
+        "options": {}
+      },
+      "name": "Get Transactions DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        4320,
+        4868
+      ],
+      "id": "885611ec-890c-40a3-a24f-a52c51209d6f",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-radar",
+          "name": "Radar Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst rows = [];\nfor (const it of items) {\n  const p = it.json;\n  if (!p.transaction_id && !p.sku) continue;\n  rows.push({\n    transaction_id: p.transaction_id,\n    sku: p.sku,\n    product_name: p.product_name,\n    transaction_type: p.transaction_type,\n    quantity: p.quantity,\n    previous_stock: p.previous_stock,\n    new_stock: p.new_stock,\n    unit_price: p.unit_price,\n    total_amount: p.total_amount,\n    supplier_customer: p.supplier_customer || '',\n    notes: p.notes || '',\n    timestamp: p.timestamp || p.created_at || ''\n  });\n}\nreturn [{ json: { transaction_history: rows } }];"
+      },
+      "name": "Transaction History Formatter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        4868
+      ],
+      "id": "4d20901c-b179-431a-9664-eca2101259e5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst rows = [];\nfor (const it of items) {\n  const p = it.json;\n  if (!p.sku) continue;\n  const currentStock = Number(p.current_stock || 0);\n  const reorderLevel = Number(p.reorder_level || 0);\n  rows.push({\n    sku: p.sku,\n    product_name: p.product_name,\n    category: p.category || '',\n    current_stock: currentStock,\n    reorder_level: reorderLevel,\n    selling_price: p.selling_price,\n    status: p.status || 'LOW_STOCK',\n    suggested_reorder_qty: Math.max(reorderLevel * 2 - currentStock, 0)\n  });\n}\nreturn [{ json: { low_stock_report: rows } }];"
+      },
+      "name": "Low Stock Formatter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        4880
+      ],
+      "id": "8c80437b-0152-46ee-9485-55d023fbd8bb"
+    }
+  ],
+  "connections": {
+    "Chat Input": {
+      "main": [
+        [
+          {
+            "node": "Inventory AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Inventory AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inventory AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Extract Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Intent": {
+      "main": [
+        [
+          {
+            "node": "Route Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Add",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Stock In",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Stock Out",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Low Stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Search": {
+      "main": [
+        [
+          {
+            "node": "Search Product DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Add": {
+      "main": [
+        [
+          {
+            "node": "Add Product DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Stock In": {
+      "main": [
+        [
+          {
+            "node": "Get Product Stock DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Stock Out": {
+      "main": [
+        [
+          {
+            "node": "Get Product Stock DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Report": {
+      "main": [
+        [
+          {
+            "node": "Report Type Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Low Stock": {
+      "main": [
+        [
+          {
+            "node": "Get Low Stock DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Product DB": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Product DB": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Product Stock DB": {
+      "main": [
+        [
+          {
+            "node": "Stock Operation Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stock Operation Processor": {
+      "main": [
+        [
+          {
+            "node": "Stock Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stock Check": {
+      "main": [
+        [
+          {
+            "node": "Update Stock DB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Stock DB": {
+      "main": [
+        [
+          {
+            "node": "Create Transaction DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Transaction DB": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Products DB": {
+      "main": [
+        [
+          {
+            "node": "Inventory Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inventory Report": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Low Stock DB": {
+      "main": [
+        [
+          {
+            "node": "Low Stock Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Formatter": {
+      "main": [
+        [
+          {
+            "node": "Chat Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report Type Router": {
+      "main": [
+        [
+          {
+            "node": "Get Transactions DB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get All Products DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Transactions DB": {
+      "main": [
+        [
+          {
+            "node": "Transaction History Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transaction History Formatter": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low Stock Formatter": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "mobile-inventory-workflow",
+  "versionId": "e8deaff9-1775-4a91-950e-d6599d8be12d"
+}

@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --color-accent: #2563eb;
+  --color-accent-dark: #1d4ed8;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-sidebar: #0f172a;
+  --color-sidebar-soft: #1e293b;
+}
+
+html,
+body {
+  background: #f6f7f9;
+  color: #0f172a;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Card */
+.card {
+  @apply bg-white rounded-lg border border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)];
+}
+
+.card-header {
+  @apply flex items-center justify-between px-5 pt-4 pb-3 border-b border-slate-100;
+}
+.card-title {
+  @apply text-[15px] font-semibold text-slate-800;
+}
+
+/* Table */
+.table-shell {
+  @apply w-full text-left;
+}
+.table-shell th {
+  @apply px-5 py-2.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase border-b border-slate-100 whitespace-nowrap;
+}
+.table-shell td {
+  @apply px-5 py-3 text-[13px] text-slate-700 border-b border-slate-50;
+}
+.table-shell tbody tr {
+  @apply cursor-pointer transition-colors hover:bg-slate-50;
+}
+
+/* KPI */
+.kpi-card {
+  @apply bg-white rounded-lg border border-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-5 flex items-start gap-4;
+}
+
+/* Skeleton */
+.skeleton {
+  @apply rounded bg-slate-100 animate-pulse;
+}
+
+/* SVG icons base */
+.icon {
+  @apply shrink-0;
+}
