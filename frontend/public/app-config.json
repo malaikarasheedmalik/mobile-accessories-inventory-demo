@@ -15,7 +15,10 @@
   "assistant": {
     "title": "Inventory AI",
     "subtitle": "Ask anything about your inventory",
-    "badges": ["Gemini AI", "n8n"],
+    "badges": [
+      "Gemini AI",
+      "n8n"
+    ],
     "suggestions": [
       "Show low stock products",
       "Which products are out of stock?",
@@ -28,12 +31,30 @@
     ]
   },
   "quickActions": [
-    { "label": "Find Product", "command": "Show all products" },
-    { "label": "Low Stock", "command": "Show low stock products" },
-    { "label": "Out of Stock", "command": "Which products are out of stock?" },
-    { "label": "Inventory Report", "command": "Show inventory report" },
-    { "label": "Add Power Banks", "command": "Add 20 power banks" },
-    { "label": "Inventory Value", "command": "What is the total inventory value?" }
+    {
+      "label": "Find Product",
+      "command": "Show all products"
+    },
+    {
+      "label": "Low Stock",
+      "command": "Show low stock products"
+    },
+    {
+      "label": "Out of Stock",
+      "command": "Which products are out of stock?"
+    },
+    {
+      "label": "Inventory Report",
+      "command": "Show inventory report"
+    },
+    {
+      "label": "Add Power Banks",
+      "command": "Add 20 power banks"
+    },
+    {
+      "label": "Inventory Value",
+      "command": "What is the total inventory value?"
+    }
   ],
   "settings": {
     "showWebhookEditor": true,
